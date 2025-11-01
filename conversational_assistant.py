@@ -49,22 +49,34 @@ API_URL = "http://localhost:11434/api/generate"
 
 def query_ollama_http(prompt: str, model: str) -> str:
     payload = {"model": model, "prompt": prompt}
+    # Ollama local API often streams NDJSON fragments. Request streaming and
+    # aggregate the 'response' fields into a single string.
     try:
-        resp = requests.post(API_URL, json=payload, timeout=30)
+        resp = requests.post(API_URL, json=payload, stream=True, timeout=60)
         resp.raise_for_status()
-        # Try to parse JSON, but fall back to raw text
-        try:
-            data = resp.json()
-            # Ollama may return various shapes; try a few common keys
-            if isinstance(data, dict):
-                for k in ("completion", "output", "text", "result"):
-                    if k in data and isinstance(data[k], str):
-                        return data[k]
-                # if streaming or nested structure, fallback to text of body
-            return resp.text
-        except ValueError:
-            return resp.text
-    except Exception as e:
+        pieces = []
+        # iterate over lines (NDJSON or JSON fragments)
+        for raw in resp.iter_lines(decode_unicode=True):
+            if not raw:
+                continue
+            # Sometimes the server may send non-JSON control lines; skip those
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                # if it's not JSON, try to append raw text
+                pieces.append(raw)
+                continue
+            # Ollama streaming fragments commonly include a 'response' field
+            if isinstance(obj, dict) and 'response' in obj:
+                part = obj.get('response') or ''
+                pieces.append(str(part))
+            # If a final envelope with done=true is provided, break
+            if isinstance(obj, dict) and obj.get('done'):
+                break
+        # Join and return the concatenated response
+        return ''.join(pieces).strip()
+    except Exception:
+        # Let caller fallback to CLI if HTTP streaming fails
         raise
 
 
