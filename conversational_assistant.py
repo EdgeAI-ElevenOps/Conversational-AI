@@ -101,7 +101,42 @@ def query_ollama(prompt: str, model: str) -> str:
         return query_ollama_cli(prompt, model)
 
 
-def listen_once(model: Model, device: int | None, sample_rate: int = 16000, timeout: float = None) -> str:
+def clean_reply(text: str) -> str:
+    """Heuristically clean model output:
+
+    - If the model returned JSON-like fragments, try to remove role labels like
+      'Assistant:' or 'User:' that are sometimes included in the generated text.
+    - Collapse repeated whitespace and strip.
+    """
+    if not text:
+        return text
+    # If the response looks like a JSON object (starts with { and contains "response"),
+    # try to extract the 'response' field repeatedly until we get a string.
+    try:
+        # Sometimes the model returns a full JSON object string; try parsing.
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            # prefer a 'response' or 'output' key
+            for k in ("response", "output", "text", "result"):
+                if k in obj and isinstance(obj[k], str):
+                    text = obj[k]
+                    break
+    except Exception:
+        # not JSON — continue
+        pass
+
+    # Remove common role prefixes at line starts: 'AI:', 'Assistant:', 'User:', 'System:'
+    import re
+    text = re.sub(r'^(?:AI|Assistant|User|System):\s*', '', text, flags=re.MULTILINE)
+    # Remove any stray repeated labels like 'User: ... Assistant:' within the text
+    text = re.sub(r'\b(?:User|Assistant|AI|System):\s*', '', text)
+    # Collapse multiple whitespace/newlines
+    text = re.sub(r'\n{2,}', '\n', text)
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    return text.strip()
+
+
+def listen_once(model: Model, device: int | None, sample_rate: int = 16000, timeout: float | None = None) -> str:
     """Listen from the default microphone until a final VOSK result is produced.
 
     Returns the recognized text (possibly empty string).
@@ -159,6 +194,7 @@ def main():
     parser.add_argument('--rate', type=int, default=16000, help='sample rate')
     parser.add_argument('--ollama-model', default='tinyllama:1.1b', help='Ollama model name')
     parser.add_argument('--timeout', type=float, default=None, help='Listen timeout in seconds (per utterance)')
+    parser.add_argument('--no-clean', action='store_true', help="Don't post-process/clean the model reply")
     args = parser.parse_args()
 
     try:
@@ -186,6 +222,12 @@ def main():
             reply = query_ollama(prompt, args.ollama_model)
             if not reply:
                 reply = "Sorry, I couldn't produce a response."
+            if not args.no_clean:
+                try:
+                    reply = clean_reply(reply)
+                except Exception:
+                    # if cleaning fails, keep raw reply
+                    pass
             print("Assistant:", reply)
             history.append({'role': 'assistant', 'text': reply})
 
