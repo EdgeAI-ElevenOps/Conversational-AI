@@ -125,11 +125,11 @@ def clean_reply(text: str) -> str:
         # not JSON — continue
         pass
 
-    # Remove common role prefixes at line starts: 'AI:', 'Assistant:', 'User:', 'System:'
+    # Remove common role prefixes at line starts: 'AI:', 'Assistant:', 'User:', 'System:', 'Answer:'
     import re
-    text = re.sub(r'^(?:AI|Assistant|User|System):\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^(?:AI|Assistant|User|System|Answer):\s*', '', text, flags=re.MULTILINE)
     # Remove any stray repeated labels like 'User: ... Assistant:' within the text
-    text = re.sub(r'\b(?:User|Assistant|AI|System):\s*', '', text)
+    text = re.sub(r'\b(?:User|Assistant|AI|System|Answer):\s*', '', text)
     # Collapse multiple whitespace/newlines
     text = re.sub(r'\n{2,}', '\n', text)
     text = re.sub(r'[ \t]{2,}', ' ', text)
@@ -178,6 +178,8 @@ def listen_once(model: Model, device: int | None, sample_rate: int = 16000, time
 def build_prompt(history: List[dict], user_text: str) -> str:
     # Simple role-annotated conversation history to provide context
     out = []
+    # prepend a short system instruction to bias the assistant to be concise
+    out.append("System: You are a concise, helpful conversational assistant. Keep replies short and user-friendly.")
     for m in history[-10:]:
         role = m.get('role', 'user')
         text = m.get('text', '')
