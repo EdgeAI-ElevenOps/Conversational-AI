@@ -1,4 +1,4 @@
-# Raspberry Pi 4: Offline TTS + STT demo
+# Conversation AI - Raspberry Pi 4: Offline TTS + LLM Processing + STT demo
 
 This small project demonstrates offline speech-to-text (STT) using VOSK and text-to-speech (TTS) using `pyttsx3` (which uses `espeak` on Linux) on a Raspberry Pi 4.
 
